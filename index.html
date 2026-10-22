@@ -94,8 +94,13 @@
                     <p class="panel-description">Search conference talks by keyword. Works once you import the
                         conference data.</p>
                     <div class="panel-input">
-                        <input type="text" id="keyword-input" placeholder="Search by keyword..." autocomplete="off"
-                            disabled />
+                        <div class="typeahead">
+                            <input type="text" id="keyword-input" placeholder="Search by keyword..." autocomplete="off"
+                                role="combobox" aria-autocomplete="list" aria-expanded="false"
+                                aria-controls="keyword-suggestions" disabled />
+                            <div id="keyword-suggestions" class="typeahead-suggestions hidden" role="listbox"
+                                aria-label="Talk suggestions"></div>
+                        </div>
                         <button id="keyword-btn" class="btn-primary" disabled>Search</button>
                     </div>
                     <div class="search-results" id="keyword-results"></div>
@@ -110,8 +115,13 @@
                     <p class="panel-description">Find similar content by meaning, not just keywords. Requires embeddings
                         and the embed-question Edge Function.</p>
                     <div class="panel-input">
-                        <input type="text" id="semantic-input" placeholder="Search by meaning..." autocomplete="off"
-                            disabled />
+                        <div class="typeahead">
+                            <input type="text" id="semantic-input" placeholder="Search by meaning..." autocomplete="off"
+                                role="combobox" aria-autocomplete="list" aria-expanded="false"
+                                aria-controls="semantic-suggestions" disabled />
+                            <div id="semantic-suggestions" class="typeahead-suggestions hidden" role="listbox"
+                                aria-label="Talk suggestions"></div>
+                        </div>
                         <button id="semantic-btn" class="btn-primary" disabled>Search</button>
                     </div>
                     <div class="search-results" id="semantic-results"></div>
@@ -126,8 +136,13 @@
                     <p class="panel-description">Get AI-generated answers based on conference talks. Requires all Edge
                         Functions deployed.</p>
                     <div class="panel-input">
-                        <input type="text" id="rag-input" placeholder="Ask a question about conference talks..."
-                            autocomplete="off" disabled />
+                        <div class="typeahead">
+                            <input type="text" id="rag-input" placeholder="Ask a question about conference talks..."
+                                autocomplete="off" role="combobox" aria-autocomplete="list" aria-expanded="false"
+                                aria-controls="rag-suggestions" disabled />
+                            <div id="rag-suggestions" class="typeahead-suggestions hidden" role="listbox"
+                                aria-label="Talk suggestions"></div>
+                        </div>
                         <button id="rag-btn" class="btn-primary" disabled>Ask</button>
                     </div>
                     <div class="search-results" id="rag-results"></div>

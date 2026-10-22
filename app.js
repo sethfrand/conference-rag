@@ -73,16 +73,19 @@ const keywordInput = document.getElementById('keyword-input');
 const keywordBtn = document.getElementById('keyword-btn');
 const keywordResults = document.getElementById('keyword-results');
 const keywordStatus = document.getElementById('keyword-status');
+const keywordSuggestions = document.getElementById('keyword-suggestions');
 
 const semanticInput = document.getElementById('semantic-input');
 const semanticBtn = document.getElementById('semantic-btn');
 const semanticResults = document.getElementById('semantic-results');
 const semanticStatus = document.getElementById('semantic-status');
+const semanticSuggestions = document.getElementById('semantic-suggestions');
 
 const ragInput = document.getElementById('rag-input');
 const ragBtn = document.getElementById('rag-btn');
 const ragResults = document.getElementById('rag-results');
 const ragStatus = document.getElementById('rag-status');
+const ragSuggestions = document.getElementById('rag-suggestions');
 
 // ============================================
 // SETUP BANNER DETECTION
@@ -415,12 +418,11 @@ async function keywordSearch() {
     clearResults('keyword');
 
     try {
-        // Search sentence_embeddings that contain the keyword (case-insensitive)
-        const { data, error } = await supabaseClient
-            .from('sentence_embeddings')
-            .select('text, talk_id, title, speaker, url')
-            .ilike('text', `%${query}%`)
-            .limit(20);
+        // Search sentence text, titles, and speakers through a parameterized RPC.
+        const { data, error } = await supabaseClient.rpc('search_keyword_sentences', {
+            search_term: query,
+            match_count: 20
+        });
 
         if (error) throw new Error(`Search failed: ${error.message}`);
 
@@ -731,26 +733,184 @@ function similarityBadge(similarity) {
 }
 
 // ============================================
+// TYPE-AHEAD SUGGESTIONS
+// ============================================
+
+const TYPEAHEAD_MIN_LENGTH = 3;
+const TYPEAHEAD_DELAY_MS = 300;
+const suggestionCache = new Map();
+
+async function fetchTalkSuggestions(query) {
+    const cacheKey = query.toLocaleLowerCase();
+    if (suggestionCache.has(cacheKey)) return suggestionCache.get(cacheKey);
+
+    const { data, error } = await supabaseClient.rpc('search_talk_suggestions', {
+        search_term: query,
+        suggestion_count: 8
+    });
+
+    if (error) throw error;
+
+    const suggestions = data || [];
+    if (suggestionCache.size >= 50) {
+        suggestionCache.delete(suggestionCache.keys().next().value);
+    }
+    suggestionCache.set(cacheKey, suggestions);
+    return suggestions;
+}
+
+function initializeTypeahead(input, suggestionsEl, searchAction) {
+    if (!input || !suggestionsEl) return;
+
+    let debounceTimer = null;
+    let requestVersion = 0;
+    let suggestions = [];
+    let activeIndex = -1;
+
+    function closeSuggestions() {
+        suggestions = [];
+        activeIndex = -1;
+        suggestionsEl.replaceChildren();
+        suggestionsEl.classList.add('hidden');
+        input.setAttribute('aria-expanded', 'false');
+        input.removeAttribute('aria-activedescendant');
+    }
+
+    function setActiveIndex(nextIndex) {
+        const options = suggestionsEl.querySelectorAll('.typeahead-option');
+        if (!options.length) return;
+
+        activeIndex = (nextIndex + options.length) % options.length;
+        options.forEach((option, index) => {
+            const isActive = index === activeIndex;
+            option.classList.toggle('active', isActive);
+            option.setAttribute('aria-selected', String(isActive));
+        });
+
+        const activeOption = options[activeIndex];
+        input.setAttribute('aria-activedescendant', activeOption.id);
+        activeOption.scrollIntoView({ block: 'nearest' });
+    }
+
+    function chooseSuggestion(index) {
+        const suggestion = suggestions[index];
+        if (!suggestion) return;
+
+        input.value = suggestion.match_type === 'speaker'
+            ? suggestion.speaker
+            : suggestion.title;
+        closeSuggestions();
+        searchAction();
+    }
+
+    function renderSuggestions(nextSuggestions) {
+        suggestions = nextSuggestions;
+        activeIndex = -1;
+        suggestionsEl.replaceChildren();
+
+        if (!suggestions.length) {
+            closeSuggestions();
+            return;
+        }
+
+        suggestions.forEach((suggestion, index) => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.id = `${suggestionsEl.id}-option-${index}`;
+            option.className = 'typeahead-option';
+            option.setAttribute('role', 'option');
+            option.setAttribute('aria-selected', 'false');
+
+            const title = document.createElement('span');
+            title.className = 'typeahead-option-title';
+            title.textContent = suggestion.match_type === 'speaker'
+                ? suggestion.speaker
+                : suggestion.title;
+
+            const meta = document.createElement('span');
+            meta.className = 'typeahead-option-meta';
+            meta.textContent = suggestion.match_type === 'speaker'
+                ? `Speaker · ${suggestion.title}`
+                : `Talk · ${suggestion.speaker || 'Unknown speaker'}`;
+
+            option.append(title, meta);
+            option.addEventListener('pointerdown', (event) => {
+                event.preventDefault();
+                chooseSuggestion(index);
+            });
+            suggestionsEl.appendChild(option);
+        });
+
+        suggestionsEl.classList.remove('hidden');
+        input.setAttribute('aria-expanded', 'true');
+    }
+
+    input.addEventListener('input', () => {
+        window.clearTimeout(debounceTimer);
+        requestVersion += 1;
+        const currentVersion = requestVersion;
+        const query = input.value.trim();
+
+        if (query.length < TYPEAHEAD_MIN_LENGTH || !supabaseClient) {
+            closeSuggestions();
+            return;
+        }
+
+        debounceTimer = window.setTimeout(async () => {
+            try {
+                const nextSuggestions = await fetchTalkSuggestions(query);
+                if (currentVersion === requestVersion && input.value.trim() === query) {
+                    renderSuggestions(nextSuggestions);
+                }
+            } catch (error) {
+                console.warn('Type-ahead suggestions unavailable:', error.message);
+                if (currentVersion === requestVersion) closeSuggestions();
+            }
+        }, TYPEAHEAD_DELAY_MS);
+    });
+
+    input.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown' && suggestions.length) {
+            event.preventDefault();
+            setActiveIndex(activeIndex + 1);
+        } else if (event.key === 'ArrowUp' && suggestions.length) {
+            event.preventDefault();
+            setActiveIndex(activeIndex - 1);
+        } else if (event.key === 'Escape') {
+            closeSuggestions();
+        } else if (event.key === 'Enter') {
+            event.preventDefault();
+            if (activeIndex >= 0) {
+                chooseSuggestion(activeIndex);
+            } else {
+                closeSuggestions();
+                searchAction();
+            }
+        } else if (event.key === 'Tab') {
+            closeSuggestions();
+        }
+    });
+
+    input.addEventListener('blur', () => {
+        window.setTimeout(closeSuggestions, 100);
+    });
+}
+
+// ============================================
 // EVENT LISTENERS
 // ============================================
 
 // Keyword search
 if (keywordBtn) keywordBtn.addEventListener('click', keywordSearch);
-if (keywordInput) keywordInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') keywordSearch();
-});
+initializeTypeahead(keywordInput, keywordSuggestions, keywordSearch);
 
 // Semantic search
 if (semanticBtn) semanticBtn.addEventListener('click', semanticSearch);
-if (semanticInput) semanticInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') semanticSearch();
-});
+initializeTypeahead(semanticInput, semanticSuggestions, semanticSearch);
 
 // RAG search
 if (ragBtn) ragBtn.addEventListener('click', askQuestion);
-if (ragInput) ragInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') askQuestion();
-});
+initializeTypeahead(ragInput, ragSuggestions, askQuestion);
 
 // ============================================
 // DEPLOY TIMESTAMP

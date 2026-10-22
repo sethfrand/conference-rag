@@ -15,6 +15,7 @@ Prerequisites:
 """
 
 import json
+import os
 import sys
 import time
 
@@ -28,6 +29,9 @@ SUPABASE_URL = public_config['SUPABASE_URL']
 SUPABASE_SERVICE_KEY = secrets['SUPABASE_SERVICE_KEY']
 SUPABASE_ACCESS_TOKEN = secrets['SUPABASE_ACCESS_TOKEN']
 SUPABASE_PROJECT_REF = secrets['SUPABASE_PROJECT_REF']
+TYPEAHEAD_MIGRATION = os.path.join(
+    'supabase', 'migrations', '20261022000000_add_typeahead.sql'
+)
 
 
 def create_schema():
@@ -128,6 +132,10 @@ AS $$
   LIMIT match_count;
 $$;
 """
+
+    # Keep fresh project setup in sync with the deployed type-ahead migration.
+    with open(TYPEAHEAD_MIGRATION, 'r', encoding='utf-8') as f:
+        schema_sql += '\n' + f.read()
 
     url = f"https://api.supabase.com/v1/projects/{SUPABASE_PROJECT_REF}/database/query"
     headers = {
